@@ -16,22 +16,34 @@ import DefaultLoadingIndicator from './DefaultLoadingIndicator';
 export default class InfiniteScrollView extends React.Component {
   static propTypes = {
     ...ScrollView.propTypes,
-    distanceToLoadMore: PropTypes.number.isRequired,
-    canLoadMore: PropTypes.oneOfType([
+    distanceToLoadMoreBottom: PropTypes.number.isRequired,
+    distanceToLoadMoreTop: PropTypes.number.isRequired,
+    topLoadingIndicatorHeight: PropTypes.number.isRequired,
+    canLoadMoreBottom: PropTypes.oneOfType([
       PropTypes.func,
       PropTypes.bool,
     ]).isRequired,
-    onLoadMoreAsync: PropTypes.func.isRequired,
+    canLoadMoreTop: PropTypes.oneOfType([
+      PropTypes.func,
+      PropTypes.bool,
+    ]).isRequired,
+    onLoadMoreAsyncBottom: PropTypes.func.isRequired,
+    onLoadMoreAsyncTop: PropTypes.func.isRequired,
     onLoadError: PropTypes.func,
-    renderLoadingIndicator: PropTypes.func.isRequired,
+    renderLoadingIndicatorTop: PropTypes.func.isRequired,
+    renderLoadingIndicatorBottom: PropTypes.func.isRequired,
     renderLoadingErrorIndicator: PropTypes.func.isRequired,
   };
 
   static defaultProps = {
-    distanceToLoadMore: 1500,
-    canLoadMore: false,
+    distanceToLoadMoreBottom: 150,
+    distanceToLoadMoreTop: 50,
+    topLoadingIndicatorHeight: 100,
+    canLoadMoreBottom: false,
+    canLoadMoreTop: false,
     scrollEventThrottle: 100,
-    renderLoadingIndicator: () => <DefaultLoadingIndicator />,
+    renderLoadingIndicatorTop: () => <DefaultLoadingIndicator />,
+    renderLoadingIndicatorBottom: () => <DefaultLoadingIndicator />,
     renderLoadingErrorIndicator: () => <View />,
     renderScrollComponent: props => <ScrollView {...props} />,
   };
@@ -40,11 +52,13 @@ export default class InfiniteScrollView extends React.Component {
     super(props, context);
 
     this.state = {
-      isDisplayingError: false,
+      isDisplayingErrorBottom: false,
+      isDisplayingErrorTop: false,
     };
 
     this._handleScroll = this._handleScroll.bind(this);
-    this._loadMoreAsync = this._loadMoreAsync.bind(this);
+    this._loadMoreAsyncBottom = this._loadMoreAsyncBottom.bind(this);
+    this._loadMoreAsyncTop = this._loadMoreAsyncTop.bind(this);
   }
 
   getScrollResponder() {
@@ -55,20 +69,41 @@ export default class InfiniteScrollView extends React.Component {
     this._scrollComponent.setNativeProps(nativeProps);
   }
 
-  render() {
-    let statusIndicator;
+  componentDidMount() {
+    this._offsetTopIndicator()
+  }
 
-    if (this.state.isDisplayingError) {
-      statusIndicator = React.cloneElement(
-        this.props.renderLoadingErrorIndicator(
-          { onRetryLoadMore: this._loadMoreAsync }
-        ),
-        { key: 'loading-error-indicator' },
+
+  render() {
+    let statusIndicatorBottom, statusIndicatorTop;
+    
+    // Top part
+    if (this.state.isDisplayingErrorTop) {
+      statusIndicatorTop = React.cloneElement(
+          this.props.renderLoadingErrorIndicator(
+              { onRetryLoadMore: this._loadMoreAsyncTop }
+          ),
+          { key: 'loading-error-indicator-top' },
       );
-    } else if (this.state.isLoading) {
-      statusIndicator = React.cloneElement(
-        this.props.renderLoadingIndicator(),
-        { key: 'loading-indicator' },
+    } else if (this.props.canLoadMoreTop) {
+      statusIndicatorTop = React.cloneElement(
+          this.props.renderLoadingIndicatorTop(),
+          { key: 'loading-indicator-top' },
+      );
+    }
+
+    // Bottom part
+    if (this.state.isDisplayingErrorBottom) {
+      statusIndicatorBottom = React.cloneElement(
+        this.props.renderLoadingErrorIndicator(
+          { onRetryLoadMore: this._loadMoreAsyncBottom }
+        ),
+        { key: 'loading-error-indicator-bottom' },
+      );
+    } else if (this.props.canLoadMoreBottom) {
+      statusIndicatorBottom = React.cloneElement(
+        this.props.renderLoadingIndicatorBottom(),
+        { key: 'loading-indicator-bottom' },
       );
     }
 
@@ -78,7 +113,7 @@ export default class InfiniteScrollView extends React.Component {
     } = this.props;
     Object.assign(props, {
       onScroll: this._handleScroll,
-      children: [this.props.children, statusIndicator],
+      children: [statusIndicatorTop, this.props.children, statusIndicatorBottom],
     });
 
     return cloneReferencedElement(renderScrollComponent(props), {
@@ -86,44 +121,86 @@ export default class InfiniteScrollView extends React.Component {
     });
   }
 
+  _offsetTopIndicator() {
+    if(this.props.canLoadMoreTop) {
+      this._scrollComponent.scrollTo({x: 0, y: this.props.topLoadingIndicatorHeight, animated: false})
+    }
+  }
+
   _handleScroll(event) {
     if (this.props.onScroll) {
       this.props.onScroll(event);
     }
 
-    if (this._shouldLoadMore(event)) {
-      this._loadMoreAsync().catch(error => {
+    if (this._shouldLoadMoreBottom(event)) {
+      this._loadMoreAsyncBottom().catch(error => {
+        console.error('Unexpected error while loading more content:', error);
+      });
+    }
+    
+    if (this._shouldLoadMoreTop(event)) {
+      this._loadMoreAsyncTop().catch(error => {
         console.error('Unexpected error while loading more content:', error);
       });
     }
   }
 
-  _shouldLoadMore(event) {
-    let canLoadMore = (typeof this.props.canLoadMore === 'function') ?
-      this.props.canLoadMore() :
-      this.props.canLoadMore;
+  _shouldLoadMoreBottom(event) {
+    let canLoadMore = (typeof this.props.canLoadMoreBottom === 'function') ?
+      this.props.canLoadMoreBottom() :
+      this.props.canLoadMoreBottom;
 
-    return !this.state.isLoading &&
+    return !this.state.isLoadingBottom &&
       canLoadMore &&
-      !this.state.isDisplayingError &&
-      this._distanceFromEnd(event) < this.props.distanceToLoadMore;
+      !this.state.isDisplayingErrorBottom &&
+      this._distanceFromEnd(event) < this.props.distanceToLoadMoreBottom;
+  }
+  
+  _shouldLoadMoreTop(event) {
+    let canLoadMore = (typeof this.props.canLoadMoreTop === 'function') ?
+        this.props.canLoadMoreTop() :
+        this.props.canLoadMoreTop;
+
+    return !this.state.isLoadingTop &&
+        canLoadMore &&
+        !this.state.isDisplayingErrorTop &&
+        this._distanceFromTop(event) < this.props.distanceToLoadMoreTop;
   }
 
-  async _loadMoreAsync() {
-    if (this.state.isLoading && __DEV__) {
-      throw new Error('_loadMoreAsync called while isLoading is true');
+  async _loadMoreAsyncBottom() {
+    if (this.state.isLoadingBottom && __DEV__) {
+      throw new Error('_loadMoreAsyncBottom called while isLoadingBottom is true');
     }
 
     try {
-      this.setState({isDisplayingError: false, isLoading: true});
-      await this.props.onLoadMoreAsync();
+      this.setState({isDisplayingErrorBottom: false, isLoadingBottom: true});
+      await this.props.onLoadMoreAsyncBottom();
     } catch (e) {
       if (this.props.onLoadError) {
-        this.props.onLoadError(e);
+        this.props.onLoadError(e, 'bottom');
       }
-      this.setState({isDisplayingError: true});
+      this.setState({isDisplayingErrorBottom: true});
     } finally {
-      this.setState({isLoading: false});
+      this.setState({isLoadingBottom: false});
+    }
+  }
+
+  async _loadMoreAsyncTop() {
+    if (this.state.isLoadingTop && __DEV__) {
+      throw new Error('_loadMoreAsyncTop called while isLoadingTop is true');
+    }
+
+    try {
+      this.setState({isDisplayingErrorTop: false, isLoadingTop: true});
+      await this.props.onLoadMoreAsyncTop();
+    } catch (e) {
+      if (this.props.onLoadError) {
+        this.props.onLoadError(e, 'top');
+      }
+      this.setState({isDisplayingErrorTop: true});
+    } finally {
+      this.setState({isLoadingTop: false});
+      this._offsetTopIndicator();
     }
   }
 
@@ -152,6 +229,26 @@ export default class InfiniteScrollView extends React.Component {
     }
 
     return contentLength + trailingInset - scrollOffset - viewportLength;
+  }
+  
+  _distanceFromTop(event): number {
+    let {
+        contentInset,
+        contentOffset,
+    } = event.nativeEvent;
+
+    let leadingInset;
+    let scrollOffset;
+    let viewportLength;
+    if (this.props.horizontal) {
+      leadingInset = contentInset.left;
+      scrollOffset = contentOffset.x;
+    } else {
+      leadingInset = contentInset.top;
+      scrollOffset = contentOffset.y;
+    }
+
+    return scrollOffset - leadingInset;
   }
 }
 
