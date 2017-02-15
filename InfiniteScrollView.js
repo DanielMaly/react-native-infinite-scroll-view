@@ -6,6 +6,8 @@ import React, {
 import {
   ScrollView,
   View,
+  InteractionManager,
+  Platform
 } from 'react-native';
 import ScrollableMixin from 'react-native-scrollable-mixin';
 
@@ -54,6 +56,7 @@ export default class InfiniteScrollView extends React.Component {
     this.state = {
       isDisplayingErrorBottom: false,
       isDisplayingErrorTop: false,
+      canShowTopIndicator: Platform.OS != 'android'
     };
 
     this._handleScroll = this._handleScroll.bind(this);
@@ -70,7 +73,15 @@ export default class InfiniteScrollView extends React.Component {
   }
 
   componentDidMount() {
-    this._offsetTopIndicator()
+    const self = this
+    if(Platform.OS === 'android') {
+      InteractionManager.runAfterInteractions(() => {
+        setTimeout(() => self._offsetTopIndicator(), 0)
+      })
+    }
+    else {
+      this._offsetTopIndicator()
+    }
   }
 
 
@@ -85,7 +96,7 @@ export default class InfiniteScrollView extends React.Component {
           ),
           { key: 'loading-error-indicator-top' },
       );
-    } else if (this.props.canLoadMoreTop) {
+    } else if (this.props.canLoadMoreTop && this.state.canShowTopIndicator) {
       statusIndicatorTop = React.cloneElement(
           this.props.renderLoadingIndicatorTop(),
           { key: 'loading-indicator-top' },
@@ -122,6 +133,7 @@ export default class InfiniteScrollView extends React.Component {
   }
 
   _offsetTopIndicator() {
+    this.setState({canShowTopIndicator: true})
     if(this.props.canLoadMoreTop) {
       this._scrollComponent.scrollTo({x: 0, y: this.props.topLoadingIndicatorHeight, animated: false})
     }
